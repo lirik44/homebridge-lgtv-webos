@@ -10,6 +10,10 @@ const RefreshAfterCommand = [1000, 4000, 12000];
 /** The Matter level scale, which runs 1..254 where a percentage runs 0..100. */
 const MatterLevelMax = 254;
 
+/** What the Matter spec allows for a bridged device's serial number and name. */
+const SerialNumberMax = 32;
+const NameMax = 32;
+
 /**
  * Turns a percentage into the level a Matter controller works in.
  *
@@ -49,23 +53,51 @@ export function fromMatterLevel(level) {
 export function planAccessories(device, inputs = []) {
     const matter = device?.matter ?? {};
     const name = device?.name ?? 'LG TV';
-    const plan = [{ kind: 'power', key: 'power', name }];
+    const plan = [{ kind: 'power', key: 'power', name: trimName(name) }];
 
     if (matter.inputs !== false) {
+        let index = 0;
         for (const input of inputs) {
             if (!input?.reference || !input?.name) {
                 continue;
             }
-            plan.push({ kind: 'input', key: `input-${input.reference}`, name: `${name} ${input.name}`, reference: input.reference });
+            index += 1;
+            // The key becomes part of a serial number, which the spec keeps short, so it counts
+            // the inputs rather than spelling out references like com.webos.app.hdmi1.
+            plan.push({ kind: 'input', key: `i${index}`, name: trimName(`${name} ${input.name}`), reference: input.reference });
         }
     }
 
     // Only worth publishing what the TV is actually being asked to control.
     if (matter.backlight !== false && device?.picture?.backlightControl) {
-        plan.push({ kind: 'backlight', key: 'backlight', name: `${name} Backlight` });
+        plan.push({ kind: 'backlight', key: 'bl', name: trimName(`${name} Backlight`) });
     }
 
     return plan;
+}
+
+/**
+ * @param {string} name The name to show in the controller app.
+ * @returns {string} It, within what the spec allows a bridged device's name to be.
+ */
+export function trimName(name) {
+    return String(name).slice(0, NameMax);
+}
+
+/**
+ * Builds the serial number a bridged accessory is published with.
+ *
+ * The spec allows 32 characters, and a controller that reads a longer one can refuse the whole
+ * bridge rather than the one device - which is how a TV's inputs, spelled out as
+ * `192.168.1.168-input-com.webos.app.hdmi1`, kept the Aqara app from finishing.
+ *
+ * @param {string} mac The TV's MAC address, its one stable identifier.
+ * @param {string} key What this accessory stands for.
+ * @returns {string} A serial number within the limit.
+ */
+export function serialFor(mac, key) {
+    const base = String(mac ?? '').replace(/[^\w]/g, '').toUpperCase();
+    return `${base}-${key}`.slice(0, SerialNumberMax);
 }
 
 /**
@@ -127,8 +159,8 @@ export class LgWebOsMatter extends EventEmitter {
                 displayName: entry.name,
                 deviceType: this.deviceTypeFor(entry.kind),
                 manufacturer: 'LG Electronics',
-                model: this.lgDevice.modelName ?? 'webOS TV',
-                serialNumber: `${this.device.host}-${entry.key}`,
+                model: this.lgDevice.savedInfo?.modelName ?? 'webOS TV',
+                serialNumber: serialFor(this.device.mac ?? this.device.host, entry.key),
                 clusters: this.clustersFor(entry.kind),
                 handlers: this.handlersFor(entry),
                 context: { host: this.device.host, key: entry.key },
