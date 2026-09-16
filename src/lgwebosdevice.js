@@ -441,6 +441,109 @@ class LgWebOsDevice extends EventEmitter {
         }
     }
 
+    /**
+     * Turns the TV on or off.
+     *
+     * Both HomeKit and a Matter controller come through here, so that neither has its own idea of
+     * what turning a TV on involves - which on webOS is a magic packet and a wait, not a command.
+     *
+     * @param {boolean} on What was asked for.
+     * @returns {Promise<boolean>} Whether the request was sent.
+     */
+    async setPower(on) {
+        if (on === this.power && !this.isBooting) {
+            return true;
+        }
+
+        try {
+            if (on) {
+                this.isBooting = true;
+                await this.wol.wakeOnLan();
+
+                if (this.startInput) {
+                    (async () => {
+                        try {
+                            for (let attempt = 0; attempt < PowerOnWaitAttempts; attempt++) {
+                                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                                if (this.power) {
+                                    if (this.inputIdentifier !== this.startInputReference) {
+                                        const cid = await this.lgWebOsSocket.getCid('App');
+                                        const payload = { id: this.startInputReference };
+                                        await this.lgWebOsSocket.send('request', ApiUrls.LaunchApp, payload, cid);
+                                    }
+                                    return;
+                                }
+                            }
+                        } finally {
+                            this.isBooting = false;
+                        }
+                    })();
+                } else {
+                    this.isBooting = false;
+                }
+            } else {
+                const cid = await this.lgWebOsSocket.getCid('Power');
+                await this.lgWebOsSocket.send('request', ApiUrls.TurnOff, undefined, cid);
+            }
+
+            if (this.logInfo) this.emit('info', `Set Power: ${on ? 'ON' : 'OFF'}`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return true;
+        } catch (error) {
+            if (this.logWarn) this.emit('warn', `Set Power error: ${error}`);
+            return false;
+        }
+    }
+
+    /**
+     * Shows the given input, waking the TV first if it is off.
+     *
+     * @param {string} reference The input or channel reference, as configured.
+     * @returns {Promise<boolean>} Whether the input was found and asked for.
+     */
+    async setInputReference(reference) {
+        const input = this.inputsServices?.find(input => input.reference === reference);
+        if (!input) {
+            if (this.logWarn) this.emit('warn', `Input with reference ${reference} not found`);
+            return false;
+        }
+
+        if (!this.power) {
+            // A TV that is off cannot switch inputs, and waking it takes seconds.
+            await this.setPower(true);
+            for (let attempt = 0; attempt < PowerOnWaitAttempts; attempt++) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                if (this.power && !this.isBooting) break;
+            }
+        }
+
+        await this.setInput(input);
+        return true;
+    }
+
+    /**
+     * Sets the backlight, which is the one picture setting this plugin drives by default.
+     *
+     * @param {number} value 0..100.
+     * @returns {Promise<boolean>} Whether the setting was sent.
+     */
+    async setBacklight(value) {
+        try {
+            const payload = {
+                category: 'picture',
+                settings: { backlight: value }
+            };
+            const cid = await this.lgWebOsSocket.getCid();
+            await this.lgWebOsSocket.send('alert', ApiUrls.SetSystemSettings, payload, cid, 'Backlight', `Value: ${value}`);
+            if (this.logInfo) this.emit('info', `Set Backlight: ${value}`);
+            return true;
+        } catch (error) {
+            if (this.logWarn) this.emit('warn', `Set Backlight error: ${error}`);
+            return false;
+        }
+    }
+
     //prepare accessory
     async prepareAccessory() {
         try {
@@ -473,50 +576,7 @@ class LgWebOsDevice extends EventEmitter {
                         return state;
                     })
                     .onSet(async (state) => {
-                        const requestedPower = state === 1;
-                        if (requestedPower === this.power && !this.isBooting) return;
-
-                        try {
-                            switch (state) {
-                                case 1:
-                                    this.isBooting = true;
-
-                                    await this.wol.wakeOnLan();
-
-                                    if (this.startInput) {
-                                        (async () => {
-                                            try {
-                                                for (let attempt = 0; attempt < PowerOnWaitAttempts; attempt++) {
-                                                    await new Promise(resolve => setTimeout(resolve, 1000));
-
-                                                    if (this.power) {
-                                                        if (this.inputIdentifier !== this.startInputReference) {
-                                                            const cid = await this.lgWebOsSocket.getCid('App');
-                                                            const payload = { id: this.startInputReference };
-                                                            await this.lgWebOsSocket.send('request', ApiUrls.LaunchApp, payload, cid);
-                                                        }
-                                                        return;
-                                                    }
-                                                }
-                                            } finally {
-                                                this.isBooting = false;
-                                            }
-                                        })();
-                                    } else {
-                                        this.isBooting = false;
-                                    }
-                                    break;
-                                case 0: {
-                                    const cid = await this.lgWebOsSocket.getCid('Power');
-                                    await this.lgWebOsSocket.send('request', ApiUrls.TurnOff, undefined, cid);
-                                    break;
-                                }
-                            }
-                            if (this.logInfo) this.emit('info', `Set Power: ${state ? 'ON' : 'OFF'}`);
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-                        } catch (error) {
-                            if (this.logWarn) this.emit('warn', `Set Power error: ${error}`);
-                        }
+                        await this.setPower(state === 1);
                     });
 
                 this.televisionService.getCharacteristic(Characteristic.ActiveIdentifier)
@@ -1033,17 +1093,7 @@ class LgWebOsDevice extends EventEmitter {
                             return value;
                         })
                         .onSet(async (value) => {
-                            try {
-                                const payload = {
-                                    category: 'picture',
-                                    settings: { backlight: value }
-                                };
-                                const cid = await this.lgWebOsSocket.getCid();
-                                await this.lgWebOsSocket.send('alert', ApiUrls.SetSystemSettings, payload, cid, 'Backlight', `Value: ${value}`);
-                                if (this.logInfo) this.emit('info', `Set Backlight: ${value}`);
-                            } catch (error) {
-                                if (this.logWarn) this.emit('warn', `Set Backlight error: ${error}`);
-                            }
+                            await this.setBacklight(value);
                         });
                 }
 
@@ -1439,6 +1489,7 @@ class LgWebOsDevice extends EventEmitter {
                     }
 
                     this.power = power;
+                    this.emit('stateChanged');
                     if (this.logInfo) this.emit('info', `Power: ${power ? 'ON' : 'OFF'}`);
                 })
                 .on('currentApp', async (appId, power) => {
@@ -1457,6 +1508,7 @@ class LgWebOsDevice extends EventEmitter {
 
                     this.inputIdentifier = inputIdentifier;
                     this.reference = appId;
+                    this.emit('stateChanged');
                     if (this.logInfo) this.emit('info', `Input Name: ${inputName}`);
                 })
                 .on('audioState', async (volume, mute, power) => {
@@ -1533,6 +1585,7 @@ class LgWebOsDevice extends EventEmitter {
                     this.backlight = backlight;
                     this.contrast = contrast;
                     this.color = color;
+                    this.emit('stateChanged');
                     if (this.logInfo) {
                         this.emit('info', `Brightness: ${brightness}%`);
                         this.emit('info', `Backlight: ${backlight}%`);

@@ -1592,6 +1592,58 @@
                 }
               }
             },
+            "matter": {
+              "title": "Matter",
+              "type": "object",
+              "description": "Publish this TV over Matter as well as HomeKit, for Alexa, SmartThings, Aqara and the rest. Needs Matter enabled on the Homebridge bridge this plugin runs in.",
+              "properties": {
+                "enable": {
+                  "title": "Publish over Matter",
+                  "type": "boolean",
+                  "default": true,
+                  "description": "On by default wherever the bridge has Matter enabled. Matter has no device type for a television that any controller renders, so the TV is published as the plain devices they do render: a switch for the power, one per input, and a dimmer for the backlight."
+                },
+                "switchStyle": {
+                  "title": "Show switches as",
+                  "type": "string",
+                  "default": "outlet",
+                  "oneOf": [
+                    {
+                      "title": "Outlet",
+                      "enum": [
+                        "outlet"
+                      ]
+                    },
+                    {
+                      "title": "Light",
+                      "enum": [
+                        "light"
+                      ]
+                    }
+                  ],
+                  "description": "An outlet keeps the TV out of \"turn off all the lights\"; a light is there for controllers whose scenes only cover lights."
+                },
+                "inputs": {
+                  "title": "Publish the inputs",
+                  "type": "boolean",
+                  "default": true,
+                  "description": "One switch per configured input, on while the TV is showing it."
+                },
+                "backlight": {
+                  "title": "Publish the backlight",
+                  "type": "boolean",
+                  "default": true,
+                  "description": "A dimmer for the backlight, published when backlight control is enabled under Picture."
+                },
+                "stateSyncSeconds": {
+                  "title": "Report the state every (seconds)",
+                  "type": "integer",
+                  "default": 60,
+                  "minimum": 15,
+                  "description": "A Matter controller keeps its own copy of every value and only learns of a change when it is reported. Changes are reported as they happen; this is the backstop."
+                }
+              }
+            },
             "sslWebSocket": {
               "title": "SSL WebSocket",
               "type": "boolean",

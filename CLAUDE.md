@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm install          # install dependencies
 ```
 
-There is no build step (pure ESM JavaScript), no linter configured, and no test suite. The `npm test` script just exits with an error.
+There is no build step (pure ESM JavaScript) and no linter configured. `npm test` runs the Node test runner over `test/`, which covers the pure parts of the Matter layer; the rest of the plugin has no tests.
 
 ## Architecture
 
@@ -20,6 +20,7 @@ This is a Homebridge platform plugin (`"type": "module"`, ESM throughout) that c
 |---|---|
 | `index.js` | Registers `LgWebOsPlatform` with Homebridge; launches one `ImpulseGenerator` per device that retries `startDevice` every 120 s until it succeeds |
 | `src/lgwebosdevice.js` | `LgWebOsDevice` — creates and owns all HomeKit services, wires socket events to HAP characteristic updates, and handles all `onGet`/`onSet` callbacks |
+| `src/matter.js` | `LgWebOsMatter` — publishes the TV over Matter alongside HomeKit: a power switch, one switch per input and a backlight dimmer, since no controller renders Matter's television device type. Pure helpers (`planAccessories`, the level conversions) are covered by `test/matter.test.js` |
 | `src/lgwebossocket.js` | `LgWebOsSocket` — WebSocket client for the SSAP protocol; handles pairing, subscriptions, polling, and emitting typed TV-state events |
 | `src/impulsegenerator.js` | `ImpulseGenerator` — thin `EventEmitter` wrapper around `setInterval`; used for the startup retry loop (120 s) and the per-device heartbeat loop |
 | `src/restful.js` | Optional Express HTTP server; GET routes expose TV state, POST `/` accepts `{key: value}` to forward commands |

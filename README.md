@@ -17,6 +17,30 @@
 
 </span>
 
+## This fork
+
+This is a fork of [grzegorz914/homebridge-lgwebos-tv](https://github.com/grzegorz914/homebridge-lgwebos-tv)
+that publishes the same TVs over Matter as well as HomeKit, so they also reach Alexa, SmartThings
+and Aqara. Everything else is upstream's.
+
+Matter has a device type for a television, but no controller renders it - neither Apple Home nor
+the Aqara app know what to do with a media player, and an accessory they cannot render is one that
+does not appear. So each TV is published as the plain devices they all do render:
+
+| Accessory | What it is | When |
+| --- | --- | --- |
+| `<TV name>` | Power, as an outlet (or a light) | Always |
+| `<TV name> <input>` | One switch per configured input, on while the TV is showing it | Unless `matter.inputs` is false |
+| `<TV name> Backlight` | A dimmer | When backlight control is enabled under Picture |
+
+It is on wherever the Homebridge bridge running this plugin has Matter enabled, and needs no
+configuration. `matter` in each device's config turns parts of it off; see the plugin settings in
+the Homebridge UI.
+
+HomeKit and Matter drive the same device object and hear about every change, whichever ecosystem
+made it - a TV switched to another input from Aqara shows that input in Apple Home, and the other
+way round.
+
 ## Package Requirements
 
 | Package | Installation | Role | Required |

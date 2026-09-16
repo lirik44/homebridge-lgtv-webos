@@ -4,6 +4,7 @@ import LgWebOsDevice from './src/lgwebosdevice.js';
 import ImpulseGenerator from './src/impulsegenerator.js';
 import RestFul from './src/restful.js';
 import Mqtt from './src/mqtt.js';
+import { LgWebOsMatter } from './src/matter.js';
 import { PluginName, PlatformName } from './src/constants.js';
 
 class LgWebOsPlatform {
@@ -224,10 +225,34 @@ class LgWebOsPlatform {
 		api.publishExternalAccessories(PluginName, [accessory]);
 		if (logLevel.success) log.success(`Device: ${host} ${name}, Published as external accessory.`);
 
+		// The same TV over Matter, alongside HomeKit rather than instead of it: HomeKit speaks
+		// HAP, while everything else - Alexa, SmartThings, Aqara - sees a home over Matter.
+		await this.startMatter(lgDevice, device, name, host, logLevel, log, api);
+
 		// Stop startup generator and hand off to the lgDevice heartbeat generator
 		await impulseGenerator.state(false);
 		await new Promise(resolve => setTimeout(resolve, 3000));
 		await lgDevice.startStopImpulseGenerator(true, [{ name: 'heartBeat', sampling: heartBeatInterval }]);
+	}
+
+	// ── The same device over Matter ───────────────────────────────────────────
+
+	async startMatter(lgDevice, device, name, host, logLevel, log, api) {
+		try {
+			const matter = new LgWebOsMatter(api, lgDevice, device)
+				.registeredAs(PluginName, PlatformName)
+				.on('success', (msg) => logLevel.success && log.success(`Device: ${host} ${name}, ${msg}`))
+				.on('debug', (msg) => logLevel.debug && log.info(`Device: ${host} ${name}, debug: ${msg}`))
+				.on('warn', (msg) => logLevel.warn && log.warn(`Device: ${host} ${name}, ${msg}`));
+
+			if (!await matter.register()) return;
+
+			// Whatever the TV does, whoever asked for it, both ecosystems hear about it.
+			lgDevice.on('stateChanged', () => matter.update());
+			api.on('shutdown', () => matter.stopStateSync());
+		} catch (error) {
+			log.warn(`Device: ${host} ${name}, Matter setup error: ${error.message ?? error}`);
+		}
 	}
 
 	// ── Homebridge accessory cache ────────────────────────────────────────────
