@@ -138,8 +138,9 @@ export class LgWebOsMatter extends EventEmitter {
      *
      * @returns {Promise<boolean>} Whether anything was published.
      */
-    async register() {
+    async register(cached = []) {
         if (this.device?.matter?.enable === false) {
+            await this.unregisterStale(cached);
             return false;
         }
         if (!LgWebOsMatter.isAvailable(this.api)) {
@@ -177,9 +178,33 @@ export class LgWebOsMatter extends EventEmitter {
             return false;
         }
 
+        await this.unregisterStale(cached);
         this.emit('success', `Published ${toRegister.length} Matter accessory(ies): ${plan.map(entry => entry.name).join(', ')}`);
         this.startStateSync();
         return true;
+    }
+
+    /**
+     * Takes away what this TV used to publish and no longer does.
+     *
+     * A controller keeps whatever it was once given: turn the inputs off in the config and,
+     * without this, they stay in the Aqara app for ever as devices that answer nothing.
+     *
+     * @param {Array<object>} cached The accessories Homebridge restored for this plugin.
+     * @returns {Promise<void>} Resolves once they are gone.
+     */
+    async unregisterStale(cached = []) {
+        const stale = cached.filter(accessory => accessory?.context?.host === this.device.host && !this.accessories.has(accessory.UUID));
+        if (stale.length === 0) {
+            return;
+        }
+
+        try {
+            await this.api.matter.unregisterPlatformAccessories(this.pluginName, this.platformName, stale);
+            this.emit('success', `Removed ${stale.length} Matter accessory(ies) no longer published: ${stale.map(accessory => accessory.displayName).join(', ')}`);
+        } catch (error) {
+            this.emit('warn', `Could not remove the Matter accessories no longer published: ${error}`);
+        }
     }
 
     /**

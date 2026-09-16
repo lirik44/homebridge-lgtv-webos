@@ -15,6 +15,9 @@ class LgWebOsPlatform {
 		}
 
 		this.accessories = [];
+		// What Homebridge restored for this plugin over Matter, so anything a TV no longer
+		// publishes can be taken away rather than left in the controller for ever.
+		this.cachedMatterAccessories = [];
 
 		const prefDir = join(api.user.storagePath(), 'lgwebosTv');
 		try {
@@ -245,7 +248,7 @@ class LgWebOsPlatform {
 				.on('debug', (msg) => logLevel.debug && log.info(`Device: ${host} ${name}, debug: ${msg}`))
 				.on('warn', (msg) => logLevel.warn && log.warn(`Device: ${host} ${name}, ${msg}`));
 
-			if (!await matter.register()) return;
+			if (!await matter.register(this.cachedMatterAccessories)) return;
 
 			// Whatever the TV does, whoever asked for it, both ecosystems hear about it.
 			lgDevice.on('stateChanged', () => matter.update());
@@ -256,6 +259,10 @@ class LgWebOsPlatform {
 	}
 
 	// ── Homebridge accessory cache ────────────────────────────────────────────
+
+	configureMatterAccessory(accessory) {
+		this.cachedMatterAccessories.push(accessory);
+	}
 
 	configureAccessory(accessory) {
 		this.accessories.push(accessory);
